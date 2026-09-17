@@ -1,31 +1,28 @@
 import { useEffect, useState } from 'react';
-import type { DeviceTrackInfo, LiveModeId } from '../audio/types';
-import { MODE_LABELS } from '../audio/types';
+import type { DeviceTrackInfo } from '../audio/types';
 
 const CHUNK_SIZE = 2048;
 const PREVIEW_COUNT = 16;
 
 interface DebugPanelProps {
   trackInfo: DeviceTrackInfo | null;
-  liveModes: LiveModeId[];
   isLive: boolean;
-  latestChunkPreview: (modeId: LiveModeId) => Float32Array | undefined;
+  latestChunkPreview: () => Float32Array | undefined;
 }
 
-export function DebugPanel({ trackInfo, liveModes, isLive, latestChunkPreview }: DebugPanelProps) {
-  const [selected, setSelected] = useState<LiveModeId>('original');
+export function DebugPanel({ trackInfo, isLive, latestChunkPreview }: DebugPanelProps) {
   const [preview, setPreview] = useState<number[]>([]);
 
   useEffect(() => {
     if (!isLive) return;
     const id = setInterval(() => {
-      const chunk = latestChunkPreview(selected);
+      const chunk = latestChunkPreview();
       if (chunk) {
         setPreview(Array.from(chunk.slice(0, PREVIEW_COUNT)).map((v) => Math.round(v * 32767)));
       }
     }, 400);
     return () => clearInterval(id);
-  }, [selected, isLive, latestChunkPreview]);
+  }, [isLive, latestChunkPreview]);
 
   if (!trackInfo) return null;
 
@@ -33,7 +30,7 @@ export function DebugPanel({ trackInfo, liveModes, isLive, latestChunkPreview }:
 
   return (
     <div className="debug-panel">
-      <h3>PCM Debug</h3>
+      <h3>PCM Debug — raw mic capture</h3>
       <div className="debug-grid">
         <span>Sample rate</span><span>{trackInfo.sampleRate} Hz</span>
         <span>Channels</span><span>{trackInfo.channelCount}</span>
@@ -47,18 +44,8 @@ export function DebugPanel({ trackInfo, liveModes, isLive, latestChunkPreview }:
         <span>Chunk duration</span><span>{chunkDurationMs.toFixed(2)} ms</span>
       </div>
 
-      {isLive && liveModes.length > 0 && (
+      {isLive && (
         <div className="debug-preview">
-          <label>
-            Preview mode:{' '}
-            <select value={selected} onChange={(e) => setSelected(e.target.value as LiveModeId)}>
-              {liveModes.map((m) => (
-                <option key={m} value={m}>
-                  {MODE_LABELS[m]}
-                </option>
-              ))}
-            </select>
-          </label>
           <code>PCM samples (int16-equivalent, display only): [{preview.join(', ')}, ...]</code>
         </div>
       )}

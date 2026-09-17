@@ -1,11 +1,13 @@
 import { useState } from 'react';
+import type { NoiseGateParams } from '../audio/offline/processors';
 
 interface HighpassControlsProps {
+  initial: number;
   onChange: (hz: number) => void;
 }
 
-export function HighpassControls({ onChange }: HighpassControlsProps) {
-  const [cutoff, setCutoff] = useState(100);
+export function HighpassControls({ initial, onChange }: HighpassControlsProps) {
+  const [cutoff, setCutoff] = useState(initial);
   return (
     <label className="live-control">
       Cutoff: {cutoff} Hz
@@ -25,13 +27,16 @@ export function HighpassControls({ onChange }: HighpassControlsProps) {
 }
 
 interface NoiseGateControlsProps {
-  onChange: (params: { thresholdDb?: number; attackMs?: number; releaseMs?: number }) => void;
+  initial: NoiseGateParams;
+  onChange: (params: NoiseGateParams) => void;
 }
 
-export function NoiseGateControls({ onChange }: NoiseGateControlsProps) {
-  const [thresholdDb, setThresholdDb] = useState(-50);
-  const [attackMs, setAttackMs] = useState(5);
-  const [releaseMs, setReleaseMs] = useState(100);
+export function NoiseGateControls({ initial, onChange }: NoiseGateControlsProps) {
+  const [thresholdDb, setThresholdDb] = useState(initial.thresholdDb);
+  const [attackMs, setAttackMs] = useState(initial.attackMs);
+  const [releaseMs, setReleaseMs] = useState(initial.releaseMs);
+
+  const emit = (patch: Partial<NoiseGateParams>) => onChange({ thresholdDb, attackMs, releaseMs, ...patch });
 
   return (
     <div className="live-control-group">
@@ -45,7 +50,7 @@ export function NoiseGateControls({ onChange }: NoiseGateControlsProps) {
           onChange={(e) => {
             const v = Number(e.target.value);
             setThresholdDb(v);
-            onChange({ thresholdDb: v });
+            emit({ thresholdDb: v });
           }}
         />
       </label>
@@ -59,7 +64,7 @@ export function NoiseGateControls({ onChange }: NoiseGateControlsProps) {
           onChange={(e) => {
             const v = Number(e.target.value);
             setAttackMs(v);
-            onChange({ attackMs: v });
+            emit({ attackMs: v });
           }}
         />
       </label>
@@ -73,7 +78,7 @@ export function NoiseGateControls({ onChange }: NoiseGateControlsProps) {
           onChange={(e) => {
             const v = Number(e.target.value);
             setReleaseMs(v);
-            onChange({ releaseMs: v });
+            emit({ releaseMs: v });
           }}
         />
       </label>

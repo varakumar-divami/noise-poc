@@ -1,25 +1,25 @@
-import type { FinalizedRecording, ModeId } from '../audio/types';
+import type { FinalizedRecording, ModeId, ProcessingStep } from '../audio/types';
 import { MODE_LABELS } from '../audio/types';
 import { getSharedAudioContext } from '../audio/context';
 import { playBuffer } from '../audio/playback';
-import { STATIC_LATENCY_LABELS, type LoadTracker } from '../audio/metrics';
 
 const ROWS: { modeId: ModeId; processing: string }[] = [
-  { modeId: 'original', processing: 'None (raw mic)' },
-  { modeId: 'browserNs', processing: 'getUserMedia NS/AEC/AGC' },
-  { modeId: 'highpass', processing: 'DSP — biquad high-pass' },
-  { modeId: 'noisegate', processing: 'DSP — envelope-follower gate' },
-  { modeId: 'rnnoise', processing: 'WASM — RNNoise (RNN)' },
-  { modeId: 'spectral', processing: 'DSP — offline spectral subtraction' },
+  { modeId: 'original', processing: 'None (raw mic, live capture)' },
+  { modeId: 'browserNs', processing: 'getUserMedia NS/AEC/AGC (live capture, separate pass)' },
+  { modeId: 'highpass', processing: 'DSP — biquad high-pass (offline render)' },
+  { modeId: 'noisegate', processing: 'DSP — envelope-follower gate (offline render)' },
+  { modeId: 'rnnoise', processing: 'WASM — RNNoise (offline render)' },
+  { modeId: 'spectral', processing: 'DSP — spectral subtraction (offline render)' },
 ];
 
 interface ComparisonTableProps {
   recordings: Partial<Record<ModeId, FinalizedRecording>>;
-  loadTracker: LoadTracker;
-  rnnoiseAvailable: boolean;
+  steps: ProcessingStep[];
 }
 
-export function ComparisonTable({ recordings, loadTracker, rnnoiseAvailable }: ComparisonTableProps) {
+export function ComparisonTable({ recordings, steps }: ComparisonTableProps) {
+  const stepFor = (modeId: ModeId) => steps.find((s) => s.modeId === modeId);
+
   const handlePlay = async (recording: FinalizedRecording) => {
     const ctx = await getSharedAudioContext();
     playBuffer(ctx, recording.buffer);
@@ -31,29 +31,25 @@ export function ComparisonTable({ recordings, loadTracker, rnnoiseAvailable }: C
         <tr>
           <th>Mode</th>
           <th>Processing</th>
-          <th>Approx. Load</th>
-          <th>Approx. Latency</th>
+          <th>Render time (measured)</th>
           <th>Audio</th>
         </tr>
       </thead>
       <tbody>
         {ROWS.map(({ modeId, processing }) => {
-          if (modeId === 'rnnoise' && !rnnoiseAvailable) {
-            return (
-              <tr key={modeId}>
-                <td>{MODE_LABELS[modeId]}</td>
-                <td colSpan={4}>Not available in this browser/build</td>
-              </tr>
-            );
-          }
+          const step = stepFor(modeId);
           const recording = recordings[modeId];
-          const load = loadTracker.get(modeId);
+          let renderCell = '—';
+          if (modeId === 'original' || modeId === 'browserNs') renderCell = 'n/a — captured live, not rendered';
+          else if (step?.status === 'unavailable') renderCell = 'Not available in this browser/build';
+          else if (step?.status === 'error') renderCell = `Error: ${step.detail}`;
+          else if (step?.detail) renderCell = step.detail;
+
           return (
             <tr key={modeId}>
               <td>{MODE_LABELS[modeId]}</td>
               <td>{processing}</td>
-              <td>{load != null ? `~${load.toFixed(1)}%` : '—'}</td>
-              <td>{STATIC_LATENCY_LABELS[modeId].label}</td>
+              <td>{renderCell}</td>
               <td>
                 <button disabled={!recording} onClick={() => recording && handlePlay(recording)}>
                   ▶ Play

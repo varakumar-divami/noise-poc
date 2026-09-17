@@ -1,12 +1,10 @@
 let sharedContext: AudioContext | null = null;
 
-// Our hand-rolled processors — must be registered via addModule() before any
-// `new AudioWorkletNode(ctx, name)` call for that name will work.
-const CORE_WORKLET_MODULES = [
-  '/worklets/recorder-tap-processor.js',
-  '/worklets/highpass-processor.js',
-  '/worklets/noise-gate-processor.js',
-];
+// The live (shared) context only ever records raw passthrough audio (Original,
+// Browser-NS) — high-pass/noise-gate/RNNoise run offline in their own
+// OfflineAudioContext instances (see audio/offline/), each loading its own
+// worklet module since registration is per-context, not global.
+const CORE_WORKLET_MODULES = ['/worklets/recorder-tap-processor.js'];
 
 /**
  * The `sampleRate` passed here is a hint only (per spec) — most modern hardware

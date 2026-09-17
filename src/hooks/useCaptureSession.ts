@@ -1,18 +1,42 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CaptureSession } from '../audio/captureSession';
-import type { DeviceTrackInfo, FinalizedRecording, ModeChain, ModeId, SessionPhase } from '../audio/types';
+import { formatRenderStats } from '../audio/metrics';
+import type { NoiseGateParams } from '../audio/offline/processors';
 import type { SpectralSubtractionOptions } from '../audio/offline/spectralSubtraction';
+import type {
+  BrowserNsPhase,
+  DeviceTrackInfo,
+  FinalizedRecording,
+  ModeChain,
+  ModeId,
+  ProcessedModeId,
+  ProcessingStep,
+  RecordingPhase,
+} from '../audio/types';
+import { PROCESSED_MODE_IDS } from '../audio/types';
+
+const DEFAULTS = {
+  highpassCutoff: 100,
+  gate: { thresholdDb: -50, attackMs: 5, releaseMs: 100 } as NoiseGateParams,
+  spectral: { noiseProfileMs: 400, oversubtraction: 1.8, spectralFloor: 0.02 } as SpectralSubtractionOptions,
+};
+
+function initialSteps(): ProcessingStep[] {
+  return PROCESSED_MODE_IDS.map((modeId) => ({ modeId, status: 'pending' }));
+}
 
 export function useCaptureSession() {
   const sessionRef = useRef<CaptureSession | null>(null);
   if (!sessionRef.current) sessionRef.current = new CaptureSession();
   const session = sessionRef.current;
 
-  const [phase, setPhase] = useState<SessionPhase>('idle');
-  const [liveChains, setLiveChains] = useState<ModeChain[]>([]);
-  const [recordings, setRecordings] = useState<Partial<Record<ModeId, FinalizedRecording>>>({});
+  const [recordingPhase, setRecordingPhase] = useState<RecordingPhase>('idle');
+  const [browserNsPhase, setBrowserNsPhase] = useState<BrowserNsPhase>('idle');
+  const [liveChain, setLiveChain] = useState<ModeChain | null>(null);
   const [trackInfo, setTrackInfo] = useState<DeviceTrackInfo | null>(null);
-  const [rnnoiseAvailable, setRnnoiseAvailable] = useState(true);
+  const [recordings, setRecordings] = useState<Partial<Record<ModeId, FinalizedRecording>>>({});
+  const [renderStats, setRenderStats] = useState<Partial<Record<ProcessedModeId, string>>>({});
+  const [steps, setSteps] = useState<ProcessingStep[]>(initialSteps());
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
@@ -22,7 +46,7 @@ export function useCaptureSession() {
       const list = await navigator.mediaDevices.enumerateDevices();
       setDevices(list.filter((d) => d.kind === 'audioinput'));
     } catch {
-      /* ignore — permission likely not granted yet */
+      /* permission not granted yet */
     }
   }, []);
 
@@ -32,97 +56,168 @@ export function useCaptureSession() {
     return () => navigator.mediaDevices.removeEventListener?.('devicechange', refreshDevices);
   }, [refreshDevices]);
 
-  const startPhase1 = useCallback(async () => {
-    setError(null);
+  const setStep = useCallback((modeId: ProcessedModeId, patch: Partial<ProcessingStep>) => {
+    setSteps((prev) => prev.map((s) => (s.modeId === modeId ? { ...s, ...patch } : s)));
+  }, []);
+
+  const runPipeline = useCallback(async () => {
+    setSteps(initialSteps());
+
+    setStep('highpass', { status: 'running' });
     try {
-      const { chains, trackInfo: info } = await session.startPhase1(selectedDeviceId);
-      setLiveChains(chains);
+      const { recording, renderMs } = await session.processHighpass(DEFAULTS.highpassCutoff);
+      setRecordings((prev) => ({ ...prev, highpass: recording }));
+      setRenderStats((prev) => ({ ...prev, highpass: formatRenderStats(renderMs, recording.durationSec) }));
+      setStep('highpass', { status: 'done', detail: formatRenderStats(renderMs, recording.durationSec) });
+    } catch (err) {
+      setStep('highpass', { status: 'error', detail: err instanceof Error ? err.message : String(err) });
+    }
+
+    setStep('noisegate', { status: 'running' });
+    try {
+      const { recording, renderMs } = await session.processNoiseGate(DEFAULTS.gate);
+      setRecordings((prev) => ({ ...prev, noisegate: recording }));
+      setRenderStats((prev) => ({ ...prev, noisegate: formatRenderStats(renderMs, recording.durationSec) }));
+      setStep('noisegate', { status: 'done', detail: formatRenderStats(renderMs, recording.durationSec) });
+    } catch (err) {
+      setStep('noisegate', { status: 'error', detail: err instanceof Error ? err.message : String(err) });
+    }
+
+    setStep('rnnoise', { status: 'running' });
+    try {
+      const result = await session.processRnnoise();
+      if (!result) {
+        setStep('rnnoise', { status: 'unavailable', detail: 'WASM/worklet init failed or non-48kHz device' });
+      } else {
+        setRecordings((prev) => ({ ...prev, rnnoise: result.recording }));
+        setRenderStats((prev) => ({ ...prev, rnnoise: formatRenderStats(result.renderMs, result.recording.durationSec) }));
+        setStep('rnnoise', { status: 'done', detail: formatRenderStats(result.renderMs, result.recording.durationSec) });
+      }
+    } catch (err) {
+      setStep('rnnoise', { status: 'error', detail: err instanceof Error ? err.message : String(err) });
+    }
+
+    setStep('spectral', { status: 'running' });
+    try {
+      const { recording, renderMs } = session.processSpectral(DEFAULTS.spectral);
+      setRecordings((prev) => ({ ...prev, spectral: recording }));
+      setRenderStats((prev) => ({ ...prev, spectral: formatRenderStats(renderMs, recording.durationSec) }));
+      setStep('spectral', { status: 'done', detail: formatRenderStats(renderMs, recording.durationSec) });
+    } catch (err) {
+      setStep('spectral', { status: 'error', detail: err instanceof Error ? err.message : String(err) });
+    }
+  }, [session, setStep]);
+
+  const startRecording = useCallback(async () => {
+    setError(null);
+    setRecordings({});
+    setRenderStats({});
+    setSteps(initialSteps());
+    try {
+      const { chain, trackInfo: info } = await session.startRecording(selectedDeviceId);
+      setLiveChain(chain);
       setTrackInfo(info);
-      setRnnoiseAvailable(session.rnnoiseAvailable);
-      setPhase('phase1-recording');
+      setRecordingPhase('recording');
       refreshDevices();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
   }, [session, selectedDeviceId, refreshDevices]);
 
-  const stopPhase1 = useCallback(() => {
-    const results = session.stopPhase1();
-    setRecordings((prev) => {
-      const next = { ...prev };
-      for (const r of results) next[r.modeId] = r;
-      return next;
-    });
-    setLiveChains([]);
-    setPhase('phase1-done');
-  }, [session]);
+  const stopRecording = useCallback(() => {
+    const result = session.stopRecording();
+    setRecordings((prev) => ({ ...prev, original: result }));
+    setLiveChain(null);
+    setRecordingPhase('recorded');
+    void runPipeline();
+  }, [session, runPipeline]);
 
-  const startPhase2 = useCallback(async () => {
+  const startBrowserNsPass = useCallback(async () => {
     setError(null);
     try {
-      const { chain, trackInfo: info } = await session.startPhase2(selectedDeviceId);
-      setLiveChains([chain]);
+      const { chain, trackInfo: info } = await session.startBrowserNsPass(selectedDeviceId);
+      setLiveChain(chain);
       setTrackInfo(info);
-      setPhase('phase2-recording');
+      setBrowserNsPhase('recording');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
   }, [session, selectedDeviceId]);
 
-  const stopPhase2 = useCallback(() => {
-    const result = session.stopPhase2();
-    setRecordings((prev) => ({ ...prev, [result.modeId]: result }));
-    setLiveChains([]);
-    setPhase('complete');
+  const stopBrowserNsPass = useCallback(() => {
+    const result = session.stopBrowserNsPass();
+    setRecordings((prev) => ({ ...prev, browserNs: result }));
+    setLiveChain(null);
+    setBrowserNsPhase('recorded');
   }, [session]);
 
-  const setHighpassCutoff = useCallback(
+  // Debounced re-render helpers: slider drags shouldn't fire an offline render per pixel.
+  const debounceRefs = useRef<Partial<Record<ProcessedModeId, ReturnType<typeof setTimeout>>>>({});
+  const debounce = useCallback((modeId: ProcessedModeId, fn: () => void, delayMs = 200) => {
+    const existing = debounceRefs.current[modeId];
+    if (existing) clearTimeout(existing);
+    debounceRefs.current[modeId] = setTimeout(fn, delayMs);
+  }, []);
+
+  const updateHighpassCutoff = useCallback(
     (hz: number) => {
-      const chain = liveChains.find((c) => c.modeId === 'highpass');
-      chain?.controlNode?.parameters.get('cutoff')?.setValueAtTime(hz, chain.controlNode.context.currentTime);
+      if (!session.hasOriginal()) return;
+      debounce('highpass', async () => {
+        setStep('highpass', { status: 'running' });
+        const { recording, renderMs } = await session.processHighpass(hz);
+        setRecordings((prev) => ({ ...prev, highpass: recording }));
+        setStep('highpass', { status: 'done', detail: formatRenderStats(renderMs, recording.durationSec) });
+      });
     },
-    [liveChains]
+    [session, debounce, setStep]
   );
 
-  const setGateParams = useCallback(
-    (params: { thresholdDb?: number; attackMs?: number; releaseMs?: number }) => {
-      const chain = liveChains.find((c) => c.modeId === 'noisegate');
-      if (!chain?.controlNode) return;
-      const now = chain.controlNode.context.currentTime;
-      if (params.thresholdDb !== undefined) chain.controlNode.parameters.get('thresholdDb')?.setValueAtTime(params.thresholdDb, now);
-      if (params.attackMs !== undefined) chain.controlNode.parameters.get('attackMs')?.setValueAtTime(params.attackMs, now);
-      if (params.releaseMs !== undefined) chain.controlNode.parameters.get('releaseMs')?.setValueAtTime(params.releaseMs, now);
+  const updateGateParams = useCallback(
+    (params: NoiseGateParams) => {
+      if (!session.hasOriginal()) return;
+      debounce('noisegate', async () => {
+        setStep('noisegate', { status: 'running' });
+        const { recording, renderMs } = await session.processNoiseGate(params);
+        setRecordings((prev) => ({ ...prev, noisegate: recording }));
+        setStep('noisegate', { status: 'done', detail: formatRenderStats(renderMs, recording.durationSec) });
+      });
     },
-    [liveChains]
+    [session, debounce, setStep]
   );
 
-  const runSpectral = useCallback(
-    (opts?: SpectralSubtractionOptions) => {
-      const result = session.runSpectralSubtraction(opts);
-      if (result) setRecordings((prev) => ({ ...prev, spectral: result }));
-      return result;
+  const updateSpectralParams = useCallback(
+    (opts: SpectralSubtractionOptions) => {
+      if (!session.hasOriginal()) return;
+      debounce('spectral', () => {
+        setStep('spectral', { status: 'running' });
+        const { recording, renderMs } = session.processSpectral(opts);
+        setRecordings((prev) => ({ ...prev, spectral: recording }));
+        setStep('spectral', { status: 'done', detail: formatRenderStats(renderMs, recording.durationSec) });
+      });
     },
-    [session]
+    [session, debounce, setStep]
   );
 
   return {
-    phase,
-    liveChains,
-    recordings,
+    recordingPhase,
+    browserNsPhase,
+    liveChain,
     trackInfo,
-    rnnoiseAvailable,
+    recordings,
+    renderStats,
+    steps,
     devices,
     selectedDeviceId,
     setSelectedDeviceId,
     error,
-    startPhase1,
-    stopPhase1,
-    startPhase2,
-    stopPhase2,
-    setHighpassCutoff,
-    setGateParams,
-    runSpectral,
-    loadTracker: session.loadTracker,
-    latestChunkPreview: session.latestChunkPreview.bind(session),
+    startRecording,
+    stopRecording,
+    startBrowserNsPass,
+    stopBrowserNsPass,
+    updateHighpassCutoff,
+    updateGateParams,
+    updateSpectralParams,
+    defaults: DEFAULTS,
+    latestChunkPreview: () => session.latestOriginalChunkPreview(),
   };
 }

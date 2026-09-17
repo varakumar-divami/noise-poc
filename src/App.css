@@ -57,9 +57,65 @@ header .subtitle {
   background: #1a1a1a;
 }
 
+.mode-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
 .mode-panel h3 {
-  margin: 0 0 0.5rem;
+  margin: 0;
   font-size: 1rem;
+}
+
+.status-badge {
+  font-size: 0.7rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.status-pending { background: #333; color: #999; }
+.status-running { background: #713f12; color: #fde68a; }
+.status-done { background: #14532d; color: #86efac; }
+.status-error { background: #4a1414; color: #fca5a5; }
+.status-unavailable { background: #333; color: #999; }
+
+.pipeline-section {
+  padding: 0.5rem 0 1rem;
+}
+
+.pipeline-status {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.pipeline-icon {
+  display: inline-block;
+  width: 1.2rem;
+}
+
+.pipeline-step.pending { color: #888; }
+.pipeline-step.running { color: #fde68a; }
+.pipeline-step.done { color: #86efac; }
+.pipeline-step.error { color: #fca5a5; }
+.pipeline-step.unavailable { color: #888; }
+
+.pipeline-detail {
+  color: #888;
+  font-size: 0.8rem;
+}
+
+.browser-ns-section {
+  padding: 1rem 0;
+  border-top: 1px solid #333;
 }
 
 .mode-note {

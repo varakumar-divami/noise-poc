@@ -52,3 +52,13 @@ export class RecordingStore {
     this.latestChunkByMode.clear();
   }
 }
+
+/** Wraps an already-rendered AudioBuffer (e.g. from an offline render) as a FinalizedRecording. */
+export function finalizedFromBuffer(modeId: ModeId, buffer: AudioBuffer): FinalizedRecording {
+  return {
+    modeId,
+    buffer,
+    durationSec: buffer.duration,
+    byteSize: buffer.length * 4, // Float32, mono
+  };
+}

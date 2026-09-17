@@ -1,16 +1,9 @@
 import { getSharedAudioContext } from './context';
-import {
-  buildHighpassChain,
-  buildNoiseGateChain,
-  buildPassthroughChain,
-  buildRnnoiseChain,
-  disconnectChain,
-} from './graphBuilder';
-import { LoadTracker } from './metrics';
-import { tryBuildRnnoiseNode } from './rnnoise/rnnoiseNode';
-import { RecordingStore } from './recordingStore';
+import { buildPassthroughChain, disconnectChain } from './graphBuilder';
+import { finalizedFromBuffer, RecordingStore } from './recordingStore';
+import { renderHighpass, renderNoiseGate, renderRnnoise, type NoiseGateParams } from './offline/processors';
 import { denoiseSpectralSubtraction, type SpectralSubtractionOptions } from './offline/spectralSubtraction';
-import { LIVE_MODE_IDS, type DeviceTrackInfo, type FinalizedRecording, type ModeChain } from './types';
+import type { DeviceTrackInfo, FinalizedRecording, ModeChain } from './types';
 
 function trackInfoFrom(track: MediaStreamTrack, ctx: AudioContext): DeviceTrackInfo {
   const settings = track.getSettings();
@@ -21,30 +14,32 @@ function trackInfoFrom(track: MediaStreamTrack, ctx: AudioContext): DeviceTrackI
   };
 }
 
+export interface RenderResult {
+  recording: FinalizedRecording;
+  renderMs: number;
+}
+
 export class CaptureSession {
   private ctx: AudioContext | null = null;
   readonly recordingStore = new RecordingStore();
-  readonly loadTracker = new LoadTracker();
 
-  private phase1Stream: MediaStream | null = null;
-  private phase1Source: MediaStreamAudioSourceNode | null = null;
-  private phase1Chains = new Map<string, ModeChain>();
-  private rawOriginalSamples: Float32Array | null = null;
+  private liveStream: MediaStream | null = null;
+  private liveSource: MediaStreamAudioSourceNode | null = null;
+  private liveChain: ModeChain | null = null;
+  private originalBuffer: AudioBuffer | null = null;
 
-  private phase2Stream: MediaStream | null = null;
-  private phase2Source: MediaStreamAudioSourceNode | null = null;
-  private phase2Chain: ModeChain | null = null;
-
-  rnnoiseAvailable = true;
+  private browserNsStream: MediaStream | null = null;
+  private browserNsSource: MediaStreamAudioSourceNode | null = null;
+  private browserNsChain: ModeChain | null = null;
 
   async getContext(): Promise<AudioContext> {
     this.ctx = await getSharedAudioContext();
     return this.ctx;
   }
 
-  async startPhase1(deviceId?: string): Promise<{ chains: ModeChain[]; trackInfo: DeviceTrackInfo }> {
+  async startRecording(deviceId?: string): Promise<{ chain: ModeChain; trackInfo: DeviceTrackInfo }> {
     const ctx = await this.getContext();
-    this.phase1Stream = await navigator.mediaDevices.getUserMedia({
+    this.liveStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: false,
         noiseSuppression: false,
@@ -53,53 +48,33 @@ export class CaptureSession {
         ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
       },
     });
-
-    this.phase1Source = ctx.createMediaStreamSource(this.phase1Stream);
-    this.recordingStore.start(LIVE_MODE_IDS);
-
-    const callbacks = { onChunk: this.recordingStore.handleChunk, onLoad: this.loadTracker.handleLoad };
-
-    const original = buildPassthroughChain(ctx, this.phase1Source, 'original', callbacks);
-    const highpass = buildHighpassChain(ctx, this.phase1Source, callbacks);
-    const noisegate = buildNoiseGateChain(ctx, this.phase1Source, callbacks);
-    this.phase1Chains.set('original', original);
-    this.phase1Chains.set('highpass', highpass);
-    this.phase1Chains.set('noisegate', noisegate);
-
-    const rnnoiseInit = await tryBuildRnnoiseNode(ctx);
-    if (rnnoiseInit) {
-      const rnnoise = buildRnnoiseChain(ctx, this.phase1Source, rnnoiseInit.node, callbacks);
-      this.phase1Chains.set('rnnoise', rnnoise);
-      this.rnnoiseAvailable = true;
-    } else {
-      this.rnnoiseAvailable = false;
-    }
-
-    const trackInfo = trackInfoFrom(this.phase1Stream.getAudioTracks()[0], ctx);
-    return { chains: [...this.phase1Chains.values()], trackInfo };
+    this.liveSource = ctx.createMediaStreamSource(this.liveStream);
+    this.recordingStore.start(['original']);
+    this.liveChain = buildPassthroughChain(ctx, this.liveSource, 'original', {
+      onChunk: this.recordingStore.handleChunk,
+    });
+    const trackInfo = trackInfoFrom(this.liveStream.getAudioTracks()[0], ctx);
+    return { chain: this.liveChain, trackInfo };
   }
 
-  /** Finalizes the 4 live recordings and tears down phase-1's live graph/stream. */
-  stopPhase1(): FinalizedRecording[] {
+  stopRecording(): FinalizedRecording {
     const ctx = this.ctx!;
-    const results: FinalizedRecording[] = [];
-    for (const [modeId, chain] of this.phase1Chains) {
-      const raw = this.recordingStore.finalizeRaw(chain.modeId);
-      if (modeId === 'original') this.rawOriginalSamples = raw;
-      results.push(this.recordingStore.toAudioBuffer(ctx, chain.modeId, raw));
-      disconnectChain(chain);
-    }
-    this.phase1Source?.disconnect();
-    this.phase1Stream?.getTracks().forEach((t) => t.stop());
-    this.phase1Chains.clear();
-    this.phase1Source = null;
-    this.phase1Stream = null;
-    return results;
+    const raw = this.recordingStore.finalizeRaw('original');
+    const result = this.recordingStore.toAudioBuffer(ctx, 'original', raw);
+    this.originalBuffer = result.buffer;
+
+    if (this.liveChain) disconnectChain(this.liveChain);
+    this.liveSource?.disconnect();
+    this.liveStream?.getTracks().forEach((t) => t.stop());
+    this.liveChain = null;
+    this.liveSource = null;
+    this.liveStream = null;
+    return result;
   }
 
-  async startPhase2(deviceId?: string): Promise<{ chain: ModeChain; trackInfo: DeviceTrackInfo }> {
+  async startBrowserNsPass(deviceId?: string): Promise<{ chain: ModeChain; trackInfo: DeviceTrackInfo }> {
     const ctx = await this.getContext();
-    this.phase2Stream = await navigator.mediaDevices.getUserMedia({
+    this.browserNsStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
         noiseSuppression: true,
@@ -108,35 +83,62 @@ export class CaptureSession {
         ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
       },
     });
-    this.phase2Source = ctx.createMediaStreamSource(this.phase2Stream);
+    this.browserNsSource = ctx.createMediaStreamSource(this.browserNsStream);
     this.recordingStore.start(['browserNs']);
-    this.phase2Chain = buildPassthroughChain(ctx, this.phase2Source, 'browserNs', {
+    this.browserNsChain = buildPassthroughChain(ctx, this.browserNsSource, 'browserNs', {
       onChunk: this.recordingStore.handleChunk,
     });
-    const trackInfo = trackInfoFrom(this.phase2Stream.getAudioTracks()[0], ctx);
-    return { chain: this.phase2Chain, trackInfo };
+    const trackInfo = trackInfoFrom(this.browserNsStream.getAudioTracks()[0], ctx);
+    return { chain: this.browserNsChain, trackInfo };
   }
 
-  stopPhase2(): FinalizedRecording {
+  stopBrowserNsPass(): FinalizedRecording {
     const ctx = this.ctx!;
     const result = this.recordingStore.toAudioBuffer(ctx, 'browserNs');
-    if (this.phase2Chain) disconnectChain(this.phase2Chain);
-    this.phase2Source?.disconnect();
-    this.phase2Stream?.getTracks().forEach((t) => t.stop());
-    this.phase2Chain = null;
-    this.phase2Source = null;
-    this.phase2Stream = null;
+    if (this.browserNsChain) disconnectChain(this.browserNsChain);
+    this.browserNsSource?.disconnect();
+    this.browserNsStream?.getTracks().forEach((t) => t.stop());
+    this.browserNsChain = null;
+    this.browserNsSource = null;
+    this.browserNsStream = null;
     return result;
   }
 
-  /** Offline-only: runs spectral subtraction over Phase 1's captured Original buffer. */
-  runSpectralSubtraction(opts?: SpectralSubtractionOptions): FinalizedRecording | null {
-    if (!this.ctx || !this.rawOriginalSamples) return null;
-    const denoised = denoiseSpectralSubtraction(this.rawOriginalSamples, this.ctx.sampleRate, opts);
-    return this.recordingStore.toAudioBuffer(this.ctx, 'spectral', denoised);
+  hasOriginal(): boolean {
+    return this.originalBuffer !== null;
   }
 
-  latestChunkPreview(modeId: Parameters<RecordingStore['latestChunk']>[0]) {
-    return this.recordingStore.latestChunk(modeId);
+  async processHighpass(cutoffHz: number): Promise<RenderResult> {
+    const t0 = performance.now();
+    const buffer = await renderHighpass(this.originalBuffer!, cutoffHz);
+    return { recording: finalizedFromBuffer('highpass', buffer), renderMs: performance.now() - t0 };
+  }
+
+  async processNoiseGate(params: NoiseGateParams): Promise<RenderResult> {
+    const t0 = performance.now();
+    const buffer = await renderNoiseGate(this.originalBuffer!, params);
+    return { recording: finalizedFromBuffer('noisegate', buffer), renderMs: performance.now() - t0 };
+  }
+
+  /** Returns null if RNNoise can't be initialized (e.g. WASM/worklet load failure). */
+  async processRnnoise(): Promise<RenderResult | null> {
+    const t0 = performance.now();
+    const buffer = await renderRnnoise(this.originalBuffer!);
+    if (!buffer) return null;
+    return { recording: finalizedFromBuffer('rnnoise', buffer), renderMs: performance.now() - t0 };
+  }
+
+  processSpectral(opts?: SpectralSubtractionOptions): RenderResult {
+    const ctx = this.ctx!;
+    const t0 = performance.now();
+    const raw = this.originalBuffer!.getChannelData(0);
+    const denoised = denoiseSpectralSubtraction(raw, this.originalBuffer!.sampleRate, opts);
+    const buffer = ctx.createBuffer(1, denoised.length, this.originalBuffer!.sampleRate);
+    buffer.copyToChannel(denoised as Float32Array<ArrayBuffer>, 0);
+    return { recording: finalizedFromBuffer('spectral', buffer), renderMs: performance.now() - t0 };
+  }
+
+  latestOriginalChunkPreview(): Float32Array | undefined {
+    return this.recordingStore.latestChunk('original');
   }
 }
