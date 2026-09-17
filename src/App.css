@@ -1,0 +1,163 @@
+.app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1.5rem;
+  text-align: left;
+}
+
+.app header h1 {
+  font-size: 28px;
+  margin: 0 0 4px;
+}
+
+header .subtitle {
+  color: #888;
+  font-size: 0.9rem;
+}
+
+.error-banner {
+  background: #4a1414;
+  color: #fca5a5;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+}
+
+.controls-bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 1rem 0;
+  border-bottom: 1px solid #333;
+}
+
+.phase-note {
+  font-size: 0.8rem;
+  color: #999;
+  padding: 0.5rem 0 1rem;
+}
+
+.rec-duration {
+  font-variant-numeric: tabular-nums;
+  color: #f87171;
+}
+
+.mode-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 1rem;
+  padding: 1rem 0;
+}
+
+.mode-panel {
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 0.75rem;
+  background: #1a1a1a;
+}
+
+.mode-panel h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.mode-note {
+  font-size: 0.75rem;
+  color: #999;
+}
+
+.viz-canvas {
+  width: 100%;
+  height: auto;
+  display: block;
+  background: #0d0d0d;
+  border-radius: 4px;
+  margin-bottom: 0.4rem;
+}
+
+.mode-meta {
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.75rem;
+  color: #aaa;
+  flex-wrap: wrap;
+  margin-bottom: 0.4rem;
+}
+
+.mode-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.mode-recording-meta {
+  font-size: 0.75rem;
+  color: #888;
+}
+
+.live-control,
+.live-control-group label {
+  display: block;
+  font-size: 0.75rem;
+  margin: 0.3rem 0;
+}
+
+.live-control input,
+.live-control-group input {
+  width: 100%;
+}
+
+.spectral-section,
+.comparison-section {
+  padding: 1rem 0;
+  border-top: 1px solid #333;
+}
+
+.spectral-controls {
+  max-width: 400px;
+  margin-bottom: 1rem;
+}
+
+.comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.comparison-table th,
+.comparison-table td {
+  border: 1px solid #333;
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+}
+
+.debug-panel {
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin: 1rem 0;
+  background: #141414;
+}
+
+.debug-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1rem;
+  font-size: 0.85rem;
+  margin-bottom: 0.5rem;
+}
+
+.debug-preview code {
+  display: block;
+  word-break: break-all;
+  font-size: 0.75rem;
+  background: #0d0d0d;
+  padding: 0.5rem;
+  border-radius: 4px;
+}
+
+.device-selector,
+.device-hint {
+  font-size: 0.85rem;
+}
