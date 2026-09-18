@@ -32,12 +32,6 @@ header .subtitle {
   border-bottom: 1px solid #333;
 }
 
-.phase-note {
-  font-size: 0.8rem;
-  color: #999;
-  padding: 0.5rem 0 1rem;
-}
-
 .rec-duration {
   font-variant-numeric: tabular-nums;
   color: #f87171;
@@ -57,70 +51,15 @@ header .subtitle {
   background: #1a1a1a;
 }
 
-.mode-panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  margin-bottom: 0.5rem;
-}
-
 .mode-panel h3 {
-  margin: 0;
+  margin: 0 0 0.25rem;
   font-size: 1rem;
 }
 
-.status-badge {
-  font-size: 0.7rem;
-  padding: 0.1rem 0.5rem;
-  border-radius: 999px;
-  white-space: nowrap;
-}
-
-.status-pending { background: #333; color: #999; }
-.status-running { background: #713f12; color: #fde68a; }
-.status-done { background: #14532d; color: #86efac; }
-.status-error { background: #4a1414; color: #fca5a5; }
-.status-unavailable { background: #333; color: #999; }
-
-.pipeline-section {
-  padding: 0.5rem 0 1rem;
-}
-
-.pipeline-status {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.mode-blurb {
   font-size: 0.85rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.pipeline-icon {
-  display: inline-block;
-  width: 1.2rem;
-}
-
-.pipeline-step.pending { color: #888; }
-.pipeline-step.running { color: #fde68a; }
-.pipeline-step.done { color: #86efac; }
-.pipeline-step.error { color: #fca5a5; }
-.pipeline-step.unavailable { color: #888; }
-
-.pipeline-detail {
-  color: #888;
-  font-size: 0.8rem;
-}
-
-.browser-ns-section {
-  padding: 1rem 0;
-  border-top: 1px solid #333;
-}
-
-.mode-note {
-  font-size: 0.75rem;
-  color: #999;
+  color: #ccc;
+  margin: 0 0 0.5rem;
 }
 
 .viz-canvas {
@@ -164,28 +103,21 @@ header .subtitle {
   width: 100%;
 }
 
-.spectral-section,
-.comparison-section {
-  padding: 1rem 0;
-  border-top: 1px solid #333;
+.filter-type-toggle {
+  display: flex;
+  gap: 1rem;
+  margin: 0.3rem 0;
 }
 
-.spectral-controls {
-  max-width: 400px;
-  margin-bottom: 1rem;
+.filter-type-toggle label {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
 }
 
-.comparison-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.85rem;
-}
-
-.comparison-table th,
-.comparison-table td {
-  border: 1px solid #333;
-  padding: 0.4rem 0.6rem;
-  text-align: left;
+.filter-type-toggle input {
+  width: auto;
 }
 
 .debug-panel {
@@ -211,9 +143,4 @@ header .subtitle {
   background: #0d0d0d;
   padding: 0.5rem;
   border-radius: 4px;
-}
-
-.device-selector,
-.device-hint {
-  font-size: 0.85rem;
 }

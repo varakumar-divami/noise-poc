@@ -8,9 +8,6 @@ importers:
 
   .:
     dependencies:
-      '@sapphi-red/web-noise-suppressor':
-        specifier: ^0.4.0
-        version: 0.4.0
       react:
         specifier: ^19.2.8
         version: 19.3.0
@@ -265,9 +262,6 @@ packages:
 
   '@rolldown/pluginutils@1.0.1':
     resolution: {integrity: sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw==}
-
-  '@sapphi-red/web-noise-suppressor@0.4.0':
-    resolution: {integrity: sha512-vkBEL/VDkbeP3qqSRQFRtPLGa19a38JUzO6J0r5D/MQSumrlERy671DAMaETgY6etXjDCoJcD7JBIaXnuGVtVw==}
 
   '@types/node@24.13.5':
     resolution: {integrity: sha512-TXyindR+lBr22aJIdMQzCFHPHR6cR4js838mRDCSz5hOKWZvZwsXSSiXDmjRj4iJmgl+sR9O+1mkoVBSMadNug==}
@@ -603,8 +597,6 @@ snapshots:
     optional: true
 
   '@rolldown/pluginutils@1.0.1': {}
-
-  '@sapphi-red/web-noise-suppressor@0.4.0': {}
 
   '@types/node@24.13.5':
     dependencies:

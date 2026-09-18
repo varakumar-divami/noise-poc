@@ -7,11 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview",
-    "postinstall": "node scripts/copy-rnnoise-assets.mjs"
+    "preview": "vite preview"
   },
   "dependencies": {
-    "@sapphi-red/web-noise-suppressor": "^0.4.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
